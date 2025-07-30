@@ -42,12 +42,16 @@ class PortfolioUpdater:
 
     def _run_command(self, command: list[str], working_dir: str = '.') -> bool:
         try:
+            # Removido capture_output para que a saída vá para o console em tempo real
             subprocess.run(
-                command, check=True, cwd=working_dir, capture_output=True, text=True, encoding='utf-8'
+                command, check=True, cwd=working_dir, text=True, encoding='utf-8'
             )
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             print(f"Error executing command: {' '.join(command)}", file=sys.stderr)
+            # Imprima a saída de erro para depuração
+            print(f"Stderr: {e.stderr}", file=sys.stderr)
+            print(f"Stdout: {e.stdout}", file=sys.stderr)
             return False
 
     def _clone_repo(self, repo_url: str, clone_dir: str) -> bool:
@@ -135,7 +139,11 @@ class PortfolioUpdater:
             
             success, project_name = self._update_json_file(project_data)
             if not success:
-                return
+                if project_name is None:
+                    print(f"INFO: Project '{self.project_repo_url}' already exists in the portfolio. No changes made.")
+                    return
+                else:
+                    raise RuntimeError("Failed to update the JSON file for an unknown reason.")
 
             if not self._git_commit_and_push(project_name):
                 raise RuntimeError("Failed to push changes to the API repository.")
