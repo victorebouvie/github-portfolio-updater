@@ -20,16 +20,16 @@ def temporary_directories(*dirs: str):
     finally:
         for directory in dirs:
             if os.path.exists(directory):
-                shutil.rmtree(directory, onexc=handle_remove_readonly)
+                shutil.rmtree(directory, onerror=handle_remove_readonly)
 
-def handle_remove_readonly(func, path, exc):
+def handle_remove_readonly(func, path, exc_info):
     """
     Handler for shutil.rmtree's onexc argument.
-    Correctly handles the new signature where 'exc' is the exception instance.
+    Handles readonly errors on Windows.
     """
-    exc_type, exc_value, _ = exc
+    exc_value = exc_info[1]
     if isinstance(exc_value, PermissionError):
-        os.chmod(path, 0o777) 
+        os.chmod(path, 0o777)
         func(path)
     else:
         raise
