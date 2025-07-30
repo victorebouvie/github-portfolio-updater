@@ -20,7 +20,20 @@ def temporary_directories(*dirs: str):
     finally:
         for directory in dirs:
             if os.path.exists(directory):
-                shutil.rmtree(directory)
+                shutil.rmtree(directory, onexc=handle_remove_readonly)
+
+def handle_remove_readonly(func, path, exc_info):
+    """
+    Handler for shutil.rmtree's onerror argument.
+
+    If the error is a PermissionError, it changes the file's permissions
+    and retries the operation. Otherwise, it re-raises the error.
+    """
+    if isinstance(exc_info[1], PermissionError):
+        os.chmod(path, 0o777) 
+        func(path)
+    else:
+        raise
 
 class PortfolioUpdater:
     def __init__(self, project_url: str, api_url: str, json_file: str):
