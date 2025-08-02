@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 
 DEFAULT_API_REPO_URL = 'git@github.com:victorebouvie/python-portfolio-api.git'
 DEFAULT_JSON_FILE_NAME = 'projects.json'
+EXCLUDE_TECHS_FILE_NAME = 'exclude_techs.json'
 API_CLONE_DIR = 'temp_api_repo'
 PROJECT_CLONE_DIR = 'temp_project_repo'
 
@@ -42,14 +43,12 @@ class PortfolioUpdater:
 
     def _run_command(self, command: list[str], working_dir: str = '.') -> bool:
         try:
-            # Removido capture_output para que a saída vá para o console em tempo real
             subprocess.run(
                 command, check=True, cwd=working_dir, text=True, encoding='utf-8'
             )
             return True
         except subprocess.CalledProcessError as e:
             print(f"Error executing command: {' '.join(command)}", file=sys.stderr)
-            # Imprima a saída de erro para depuração
             print(f"Stderr: {e.stderr}", file=sys.stderr)
             print(f"Stdout: {e.stdout}", file=sys.stderr)
             return False
@@ -70,15 +69,27 @@ class PortfolioUpdater:
             content = file.read()
 
         name_match = re.search(r'^#\s(.+)', content, re.MULTILINE)
-        desc_match = re.search(r'##\s(?:📖\s)?About The Project\n\n(.*?)\n\n---', content, re.DOTALL)
+        desc_match = re.search(r'##\s(?:📖\s)?About The Project\n\n(.*?)(?=\n\n)', content, re.DOTALL)
         tech_matches = re.findall(r'badge/.*?-(.*?)-', content)
 
         if not name_match or not desc_match:
+            print("Error> Could not find project name or description in README.md", file=sys.stderr)
             return None
+        
+        exclude_techs = set()
+        if os.path.exists(EXCLUDE_TECHS_FILE_NAME):
+            try:
+                with open(EXCLUDE_TECHS_FILE_NAME, 'r', encoding='utf-8') as f:
+                    excluded_techs = set(tech.lower() for tech in json.load(f))
+            except json.JSONDecodeError:
+                print(f"Warning: Could not parse '{EXCLUDE_TECHS_FILE_NAME}'. Proceeding without exclusions.", file=sys.stderr)
 
         project_name = name_match.group(1).strip()
         description = ' '.join(desc_match.group(1).strip().splitlines())
-        technologies = sorted(list(set(tech for tech in tech_matches if not tech.startswith('Platform'))))
+        technologies = sorted(list(set(
+            tech for tech in tech_matches
+            if not tech.startswith('Platform') and tech.lower() not in exclude_techs
+        )))
 
         return {"name": project_name, "description": description, "technologies": technologies}
 
@@ -89,7 +100,7 @@ class PortfolioUpdater:
                 projects = json.load(file)
                 
                 if any(p['github_url'] == self.project_repo_url for p in projects):
-                    return False, None
+                    return True, None
                 
                 max_id = max((p.get('id', 0) for p in projects), default=0)
                 
@@ -139,11 +150,11 @@ class PortfolioUpdater:
             
             success, project_name = self._update_json_file(project_data)
             if not success:
-                if project_name is None:
-                    print(f"INFO: Project '{self.project_repo_url}' already exists in the portfolio. No changes made.")
-                    return
-                else:
-                    raise RuntimeError("Failed to update the JSON file for an unknown reason.")
+                raise RuntimeError("Failed to update the JSON file due to a file read/write error.")
+            
+            if project_name is None:
+                print(f"INFO: Project '{self.project_repo_url}' already exists in the portfolio. No changes made.")
+                return
 
             if not self._git_commit_and_push(project_name):
                 raise RuntimeError("Failed to push changes to the API repository.")
